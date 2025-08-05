@@ -89,7 +89,9 @@ with st.form("patient_form"):
         st.caption("Adjust gene expression levels (normalized values)")
         for feature in gene_features:
             label = tooltip_label(feature)
-            gene_input[feature] = st.slider(label, min_value=0.0, max_value=10.0, step=0.1, value=5.0, help=feature_explanations.get(feature))
+            min_val = float(survival_both[feature].min())
+            max_val = float(survival_both[feature].max())
+            gene_input[feature] = st.slider(label, min_value=min_val, max_value=max_val, value=(min_val + max_val) / 2, step=0.1, help=feature_explanations.get(feature))
 
     # Clinical inputs
     clinical_input = {}
@@ -97,7 +99,9 @@ with st.form("patient_form"):
         st.caption("Provide values for clinical attributes")
         for feature in clinical_features:
             label = tooltip_label(feature)
-            clinical_input[feature] = st.slider(label, min_value=0.0, max_value=100.0, step=1.0, value=50.0, help=feature_explanations.get(feature))
+            min_val = float(survival_both[feature].min())
+            max_val = float(survival_both[feature].max())
+            clinical_input[feature] = st.slider(label, min_value=min_val, max_value=max_val, value=(min_val + max_val) / 2, step=0.1, help=feature_explanations.get(feature))
 
     # Data exploration tab (no form inputs here)
     with tabs[2]:
