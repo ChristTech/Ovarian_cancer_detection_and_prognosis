@@ -147,17 +147,18 @@ if submitted:
     st.write("Input Values:")
     st.write(input_df)
     
-    prediction = model.predict(input_df)[0]
+    # Convert prediction to integer array
+    prediction = model.predict(input_df)[0].astype(int)
     
     # Add after prediction
-    st.write("Raw Prediction:", prediction)
+    st.write("Raw Prediction:", prediction.tolist())
 
     st.subheader("🔮 Prediction Results")
     results = {}
     for i, outcome in enumerate(target_labels):
-        results[outcome] = prediction[i]
-        status = "Likely" if prediction[i] == 1 else "Unlikely"
-        emoji = "✅" if prediction[i] == 1 else "❌"
+        results[outcome] = int(prediction[i])  # Ensure integer type
+        status = "Likely" if results[outcome] == 1 else "Unlikely"
+        emoji = "✅" if results[outcome] == 1 else "❌"
         st.markdown(f"- **{outcome}:** {status} {emoji}")
 
     # Dynamic advice per prediction combo
