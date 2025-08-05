@@ -107,15 +107,23 @@ with st.form("patient_form"):
         st.caption("Provide values for clinical attributes")
         for feature in clinical_features:
             label = tooltip_label(feature)
-            min_val = float(survival_both[feature].min())
-            max_val = float(survival_both[feature].max())
-            default_val = float(survival_both[feature].mean())
-            clinical_input[feature] = st.slider(label, 
-                                              min_value=min_val, 
-                                              max_value=max_val, 
-                                              value=default_val,
-                                              step=0.01,
-                                              help=feature_explanations.get(feature))
+            if feature == "Age.Years":
+                clinical_input[feature] = st.slider(label,
+                                                  min_value=0,
+                                                  max_value=100,
+                                                  value=50,
+                                                  step=1,
+                                                  help=feature_explanations.get(feature))
+            else:
+                min_val = float(survival_both[feature].min())
+                max_val = float(survival_both[feature].max())
+                default_val = float(survival_both[feature].mean())
+                clinical_input[feature] = st.slider(label,
+                                                  min_value=min_val,
+                                                  max_value=max_val,
+                                                  value=default_val,
+                                                  step=0.01,
+                                                  help=feature_explanations.get(feature))
 
     # Data exploration tab (no form inputs here)
     with tabs[2]:
@@ -134,32 +142,37 @@ with st.form("patient_form"):
     submitted = st.form_submit_button("🔍 Predict")
 
 if submitted:
+    # Create input dataframe
     input_data = {**gene_input, **clinical_input}
     input_df = pd.DataFrame([input_data])
     
     # Ensure columns match training data
-    input_df = input_df[features]  # Reorder columns to match training data
+    input_df = input_df[features]
     
-    # Apply same preprocessing as training data
+    # Convert all values to float
+    input_df = input_df.astype(float)
+    
+    # Apply preprocessing
     input_df = input_df.fillna(survival_both.mean())
     
-    # Add before prediction
-    st.write("Input Values:")
-    st.write(input_df)
-    
-    # Convert prediction to integer array
-    prediction = model.predict(input_df)[0].astype(int)
-    
-    # Add after prediction
-    st.write("Raw Prediction:", prediction.tolist())
-
-    st.subheader("🔮 Prediction Results")
-    results = {}
-    for i, outcome in enumerate(target_labels):
-        results[outcome] = int(prediction[i])  # Ensure integer type
-        status = "Likely" if results[outcome] == 1 else "Unlikely"
-        emoji = "✅" if results[outcome] == 1 else "❌"
-        st.markdown(f"- **{outcome}:** {status} {emoji}")
+    # Make prediction
+    try:
+        prediction = model.predict(input_df)[0]
+        prediction = prediction.astype(int)  # Convert to integer array
+        
+        st.subheader("🔮 Prediction Results")
+        results = {}
+        for i, outcome in enumerate(target_labels):
+            results[outcome] = int(prediction[i])
+            status = "Likely" if results[outcome] == 1 else "Unlikely"
+            emoji = "✅" if results[outcome] == 1 else "❌"
+            st.markdown(f"- **{outcome}:** {status} {emoji}")
+            
+    except Exception as e:
+        st.error(f"Prediction error: {str(e)}")
+        st.write("Debug info:")
+        st.write("Input data types:", input_df.dtypes)
+        st.write("Input values:", input_df)
 
     # Dynamic advice per prediction combo
     st.subheader("📋 Health Advice")
