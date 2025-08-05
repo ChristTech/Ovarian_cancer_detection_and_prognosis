@@ -64,6 +64,8 @@ feature_explanations = {
     # Add more here...
 }
 
+gene_input = {}
+
 def tooltip_label(label):
     expl = feature_explanations.get(label)
     if expl:
@@ -84,12 +86,20 @@ with st.form("patient_form"):
     tabs = st.tabs(["🧪 Gene Expression", "🩺 Clinical Parameters", "📊 Explore Data"])
 
     # Gene Expression inputs
-    gene_input = {}
     with tabs[0]:
         st.caption("Adjust gene expression levels (normalized values)")
         for feature in gene_features:
             label = tooltip_label(feature)
-            gene_input[feature] = st.slider(label, min_value=0.0, max_value=10.0, step=0.1, value=5.0, help=feature_explanations.get(feature))
+            # Get min and max values from the training data for each gene
+            min_val = float(survival_both[feature].min())
+            max_val = float(survival_both[feature].max())
+            default_val = float(survival_both[feature].mean())
+            gene_input[feature] = st.slider(label, 
+                                          min_value=min_val, 
+                                          max_value=max_val, 
+                                          value=default_val,
+                                          step=0.01,
+                                          help=feature_explanations.get(feature))
 
     # Clinical inputs
     clinical_input = {}
@@ -97,7 +107,15 @@ with st.form("patient_form"):
         st.caption("Provide values for clinical attributes")
         for feature in clinical_features:
             label = tooltip_label(feature)
-            clinical_input[feature] = st.slider(label, min_value=0.0, max_value=100.0, step=1.0, value=50.0, help=feature_explanations.get(feature))
+            min_val = float(survival_both[feature].min())
+            max_val = float(survival_both[feature].max())
+            default_val = float(survival_both[feature].mean())
+            clinical_input[feature] = st.slider(label, 
+                                              min_value=min_val, 
+                                              max_value=max_val, 
+                                              value=default_val,
+                                              step=0.01,
+                                              help=feature_explanations.get(feature))
 
     # Data exploration tab (no form inputs here)
     with tabs[2]:
@@ -117,9 +135,22 @@ with st.form("patient_form"):
 
 if submitted:
     input_data = {**gene_input, **clinical_input}
-    input_df = pd.DataFrame([input_data]).fillna(0)
-
+    input_df = pd.DataFrame([input_data])
+    
+    # Ensure columns match training data
+    input_df = input_df[features]  # Reorder columns to match training data
+    
+    # Apply same preprocessing as training data
+    input_df = input_df.fillna(survival_both.mean())
+    
+    # Add before prediction
+    st.write("Input Values:")
+    st.write(input_df)
+    
     prediction = model.predict(input_df)[0]
+    
+    # Add after prediction
+    st.write("Raw Prediction:", prediction)
 
     st.subheader("🔮 Prediction Results")
     results = {}
