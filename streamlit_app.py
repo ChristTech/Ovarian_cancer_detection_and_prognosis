@@ -115,24 +115,20 @@ with st.form(key="patient_form"):
     # ===========================
     gene_input = {}
     with tabs[0]:
-        st.caption("Enter gene expression levels (must be ≥ 0.00001)")
+        st.caption("Adjust gene expression levels (normalized values)")
         selected_genes = ["XRCC6", "BRCA1"] if mode == "Basic (Recommended)" else gene_features
         for feature in selected_genes:
             label = tooltip_label(feature)
-            range_info = feature_ranges[feature]
             gene_input[feature] = st.number_input(
                 label,
-                min_value=0.00001,
-                value=float(max(0.00001, range_info["median"])),
+                value=float(feature_ranges[feature]["median"]),
                 step=0.1,
                 format="%.5f",
                 key=f"gene_{feature}",
-                help=f"{feature_explanations.get(feature, 'No description available.')} Dataset median: {range_info['median']:.2f}"
+                help=f"{feature_explanations.get(feature, 'No description available.')} Dataset median: {feature_ranges[feature]['median']:.2f}"
             )
 
-    # ===========================
     # Clinical Parameters
-    # ===========================
     clinical_input = {}
     with tabs[1]:
         st.caption("Provide values for clinical attributes")
@@ -151,18 +147,30 @@ with st.form(key="patient_form"):
                 )
                 stage_mapping = {"I": 1, "II": 2, "III": 3, "IV": 4}
                 clinical_input[feature] = stage_mapping[selected_stage]
+            elif feature == "Age.Years":
+                range_info = feature_ranges[feature]
+                clinical_input[feature] = st.number_input(
+                    label,
+                    value=float(1),
+                    step=1.0,
+                    format="%f",
+                    key=f"clinical_{feature}",
+                    help=f"{feature_explanations.get(feature, 'No description available.')} Dataset median: {range_info['median']:.2f}"
+                )
             else:
                 range_info = feature_ranges[feature]
                 clinical_input[feature] = st.number_input(
                     label,
-                    min_value=18.0 if feature == "Age.Years" else 0.00001,
-                    max_value=100.0 if feature == "Age.Years" else None,
-                    value=float(max(18.0, range_info["median"]) if feature == "Age.Years" else max(0.00001, range_info["median"])),
-                    step=1.0 if feature == "Age.Years" else 0.1,
-                    format="%d" if feature == "Age.Years" else "%.5f",
+                    value=float(range_info["median"]),
+                    step=0.1,
+                    format="%.5f",
                     key=f"clinical_{feature}",
                     help=f"{feature_explanations.get(feature, 'No description available.')} Dataset median: {range_info['median']:.2f}"
                 )
+        # Explicit submit button
+    st.markdown("---")
+    submitted = st.form_submit_button("🔍 Predict", help="Submit to get predictions for Survival, Progression, and Recurrence")
+
 
     # ===========================
     # Data Exploration
@@ -176,15 +184,11 @@ with st.form(key="patient_form"):
         sns.histplot(data_preview[gene], kde=True, ax=ax)
         st.pyplot(fig)
 
-    # Explicit submit button
-    st.markdown("---")
-    submitted = st.form_submit_button("🔍 Predict", help="Submit to get predictions for Survival, Progression, and Recurrence")
-
 # ===========================
 # Prediction and Results
 # ===========================
 if submitted:
-    st.write("DEBUG: Form submitted successfully!")
+    st.write("Form submitted successfully!")
     input_data = {**gene_input, **clinical_input}
     # Create a DataFrame with all expected features in the correct order
     input_df = pd.DataFrame(columns=features, index=[0])
