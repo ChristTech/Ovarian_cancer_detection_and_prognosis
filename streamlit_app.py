@@ -142,6 +142,10 @@ if submitted:
     input_data = {**gene_input, **clinical_input}
     input_df = pd.DataFrame([input_data]).fillna(0)
 
+    # Convert string booleans or actual booleans to numeric
+    input_df = input_df.replace({'TRUE': 1, 'FALSE': 0, True: 1, False: 0})
+    input_df = input_df.apply(pd.to_numeric, errors='coerce').fillna(0)
+
     try:
         prediction = model.predict(input_df)[0]
         st.subheader("🔮 Prediction Results")
@@ -191,4 +195,3 @@ if submitted:
 
     except Exception as e:
         st.error(f"Prediction failed: {e}")
-
