@@ -74,25 +74,10 @@ feature_ranges = {
     } for feature in features
 }
 
-# Adjust ranges for gene and clinical features (except Age.Years)
-for feature in features:
-    if feature != "Age.Years":
-        range_span = feature_ranges[feature]["max"] - feature_ranges[feature]["min"]
-        buffer = max(range_span * 0.1, 1.0)  # Add ±10% or minimum 1.0
-        feature_ranges[feature]["min"] = feature_ranges[feature]["min"] - buffer
-        feature_ranges[feature]["max"] = feature_ranges[feature]["max"] + buffer
-
-# Set realistic range for Age.Years
-feature_ranges["Age.Years"] = {
-    "min": 18.0,  # Minimum age for adult patients
-    "max": 100.0,  # Maximum reasonable age
-    "median": max(1.0, min(100.0, feature_ranges.get("Age.Years", {}).get("median", 50.0)))
-}
-
 feature_explanations = {
     "XRCC6": "Involved in DNA repair. Normal range: 4-6",
     "BRCA1": "Gene linked to breast/ovarian cancer. Normal range: 5-7",
-    "Figo.Stage": "FIGO staging system: 1 (Early) to 4 (Late)",
+    "Figo.Stage": "FIGO staging system: I (Early) to IV (Late)",
     "Age.Years": "Patient's age in years (18-100)",
     # Add more features as needed
 }
@@ -120,7 +105,9 @@ This tool predicts a patient’s **Survival, Cancer Progression, and Recurrence*
 
 mode = st.radio("Select Input Mode:", ["Basic (Recommended)", "Advanced"], index=0)
 
-with st.form("patient_form"):
+# Form with explicit submit button
+with st.form(key="patient_form"):
+    st.write("DEBUG: Form is active. Enter values below:")
     tabs = st.tabs(["🧪 Gene Expression", "🩺 Clinical Parameters", "📊 Explore Data"])
 
     # ===========================
@@ -128,18 +115,19 @@ with st.form("patient_form"):
     # ===========================
     gene_input = {}
     with tabs[0]:
-        st.caption("Adjust gene expression levels (based on dataset ranges)")
+        st.caption("Enter gene expression levels (must be ≥ 0.00001)")
         selected_genes = ["XRCC6", "BRCA1"] if mode == "Basic (Recommended)" else gene_features
         for feature in selected_genes:
             label = tooltip_label(feature)
             range_info = feature_ranges[feature]
-            gene_input[feature] = st.slider(
+            gene_input[feature] = st.number_input(
                 label,
-                min_value=float(range_info["min"]),
-                max_value=float(range_info["max"]),
-                value=float(range_info["median"]),
+                min_value=0.00001,
+                value=float(max(0.00001, range_info["median"])),
                 step=0.1,
-                help=f"{feature_explanations.get(feature, 'No description available.')} Range in dataset: {range_info['min']:.2f} to {range_info['max']:.2f}"
+                format="%.5f",
+                key=f"gene_{feature}",
+                help=f"{feature_explanations.get(feature, 'No description available.')} Dataset median: {range_info['median']:.2f}"
             )
 
     # ===========================
@@ -151,26 +139,29 @@ with st.form("patient_form"):
         selected_features = ["Figo.Stage", "Age.Years"] if mode == "Basic (Recommended)" else clinical_features
         for feature in selected_features:
             label = tooltip_label(rename_dict.get(feature, feature))
-            range_info = feature_ranges[feature]
             if feature == "Figo.Stage":
                 options = ["I", "II", "III", "IV"]
-                default_idx = options.index("II") if range_info["median"] >= 2 else 0
+                default_idx = options.index("II") if feature_ranges["Figo.Stage"]["median"] >= 2 else 0
                 selected_stage = st.selectbox(
                     label,
                     options=options,
                     index=default_idx,
+                    key="figo_stage",
                     help=feature_explanations.get(feature, "Select the cancer stage.")
                 )
                 stage_mapping = {"I": 1, "II": 2, "III": 3, "IV": 4}
                 clinical_input[feature] = stage_mapping[selected_stage]
             else:
-                clinical_input[feature] = st.slider(
+                range_info = feature_ranges[feature]
+                clinical_input[feature] = st.number_input(
                     label,
-                    min_value=float(range_info["min"]),
-                    max_value=float(range_info["max"]),
-                    value=float(range_info["median"]),
+                    min_value=18.0 if feature == "Age.Years" else 0.00001,
+                    max_value=100.0 if feature == "Age.Years" else None,
+                    value=float(max(18.0, range_info["median"]) if feature == "Age.Years" else max(0.00001, range_info["median"])),
                     step=1.0 if feature == "Age.Years" else 0.1,
-                    help=f"{feature_explanations.get(feature, 'No description available.')} Range in dataset: {range_info['min']:.2f} to {range_info['max']:.2f}"
+                    format="%d" if feature == "Age.Years" else "%.5f",
+                    key=f"clinical_{feature}",
+                    help=f"{feature_explanations.get(feature, 'No description available.')} Dataset median: {range_info['median']:.2f}"
                 )
 
     # ===========================
@@ -180,24 +171,35 @@ with st.form("patient_form"):
         st.header("Gene Expression Exploration")
         st.write(data_preview.head())
 
-        gene = st.selectbox("Select a gene to visualize:", data_preview.columns[1:-1])
+        gene = st.selectbox("Select a gene to visualize:", data_preview.columns[1:-1], key="gene_viz")
         fig, ax = plt.subplots()
         sns.histplot(data_preview[gene], kde=True, ax=ax)
         st.pyplot(fig)
 
-    # Submit button outside tabs
-    submitted = st.form_submit_button("🔍 Predict")
+    # Explicit submit button
+    st.markdown("---")
+    submitted = st.form_submit_button("🔍 Predict", help="Submit to get predictions for Survival, Progression, and Recurrence")
 
 # ===========================
 # Prediction and Results
 # ===========================
 if submitted:
+    st.write("DEBUG: Form submitted successfully!")
     input_data = {**gene_input, **clinical_input}
     # Create a DataFrame with all expected features in the correct order
-    input_df = pd.DataFrame(columns=features)
+    input_df = pd.DataFrame(columns=features, index=[0])
     for feature in features:
-        input_df.at[0, feature] = input_data.get(feature, feature_ranges[feature]["median"])
-    input_df = input_df.fillna(0).astype(float)
+        input_df[feature] = [input_data.get(feature, max(0.00001, feature_ranges[feature]["median"]))]
+    input_df = input_df.astype(float)
+
+    # Debug: Verify feature names
+    try:
+        expected_features = model.feature_names_in_
+        if list(input_df.columns) != list(expected_features):
+            st.warning(f"Input features {list(input_df.columns)} do not match model features {list(expected_features)}. Reordering...")
+            input_df = input_df[expected_features]
+    except AttributeError:
+        st.warning("Model does not have feature_names_in_. Proceeding with current feature order.")
 
     try:
         # Scale the input data using the loaded scaler
