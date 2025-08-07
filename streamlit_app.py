@@ -86,7 +86,7 @@ for feature in features:
 feature_ranges["Age.Years"] = {
     "min": 18.0,  # Minimum age for adult patients
     "max": 100.0,  # Maximum reasonable age
-    "median": max(18.0, min(100.0, feature_ranges.get("Age.Years", {}).get("median", 50.0)))
+    "median": max(1.0, min(100.0, feature_ranges.get("Age.Years", {}).get("median", 50.0)))
 }
 
 feature_explanations = {
