@@ -10,22 +10,25 @@ import base64
 # Background Image
 # ===========================
 def add_bg_from_local(image_file):
-    with open(image_file, "rb") as img:
-        encoded = base64.b64encode(img.read()).decode()
-    st.markdown(
-        f"""
-        <style>
-        .stApp {{
-            background-image: url("data:image/jpg;base64,{encoded}");
-            background-attachment: fixed;
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
+    try:
+        with open(image_file, "rb") as img:
+            encoded = base64.b64encode(img.read()).decode()
+        st.markdown(
+            f"""
+            <style>
+            .stApp {{
+                background-image: url("data:image/jpg;base64,{encoded}");
+                background-attachment: fixed;
+                background-size: cover;
+                background-position: center;
+                background-repeat: no-repeat;
+            }}
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+    except FileNotFoundError:
+        st.warning("Background image not found. Using default background.")
 
 add_bg_from_local('image.png')
 
@@ -39,7 +42,7 @@ def load_model():
 @st.cache_data
 def load_data():
     df = pd.read_csv("csv/SurvivalNormalBoth.csv")
-    df = df.drop(columns=["Unnamed: 0", "Cancer.Type"])
+    df = df.drop(columns=["Unnamed: 0", "Cancer.Type"], errors='ignore')
     return df
 
 @st.cache_data
@@ -59,11 +62,19 @@ gene_features = [f for f in features if f.isupper()]
 clinical_features = [f for f in features if f not in gene_features]
 
 # ===========================
-# Feature Explanations
+# Feature Ranges and Explanations
 # ===========================
+feature_ranges = {
+    feature: {
+        "min": data[feature].min(),
+        "max": data[feature].max(),
+        "median": data[feature].median()
+    } for feature in features
+}
+
 feature_explanations = {
-    "XRCC6": "Involved in DNA repair. Normal: 4-6",
-    "BRCA1": "Gene linked to breast/ovarian cancer. Normal: 5-7",
+    "XRCC6": "Involved in DNA repair. Normal range: 4-6",
+    "BRCA1": "Gene linked to breast/ovarian cancer. Normal range: 5-7",
     "Figo.Stage": "FIGO staging system: 1 (Early) to 4 (Late)",
     "Age.Years": "Patient's age in years",
     # Add more features as needed
@@ -76,7 +87,7 @@ def tooltip_label(label):
 rename_dict = {
     "Figo.Stage": "FIGO Stage",
     "Age.Years": "Age (Years)",
-    # Add readable names here
+    # Add more readable names as needed
 }
 
 # ===========================
@@ -84,31 +95,35 @@ rename_dict = {
 # ===========================
 st.title("🧬 Ovarian Cancer Prognosis Predictor")
 st.markdown("""
-This tool predicts a patient’s **Survival, Cancer Progression, and Recurrence** likelihood based on gene and clinical data. Use the Explore tab for insight.
+This tool predicts a patient’s **Survival, Cancer Progression, and Recurrence** likelihood based on gene and clinical data.  
+- Use the **Gene Expression** and **Clinical Parameters** tabs to input data.
+- Use the **Explore Data** tab to visualize distributions.
+- Select **Basic** mode for simplified inputs or **Advanced** for all features.
 """)
 
-mode = st.radio("Select Input Mode:", ["Basic (Recommended)", "Advanced"])
+mode = st.radio("Select Input Mode:", ["Basic (Recommended)", "Advanced"], index=0)
 
 with st.form("patient_form"):
-
     tabs = st.tabs(["🧪 Gene Expression", "🩺 Clinical Parameters", "📊 Explore Data"])
-
-    default_vals = data.median()
 
     # ===========================
     # Gene Expression
     # ===========================
     gene_input = {}
     with tabs[0]:
-        st.caption("Adjust gene expression levels (normalized values)")
-        if mode == "Basic (Recommended)":
-            for feature in ["XRCC6", "BRCA1"]:
-                label = tooltip_label(feature)
-                gene_input[feature] = st.slider(label, 0.0, 10.0, float(default_vals[feature]), 0.1, help=feature_explanations.get(feature))
-        else:
-            for feature in gene_features:
-                label = tooltip_label(feature)
-                gene_input[feature] = st.slider(label, 0.0, 10.0, float(default_vals[feature]), 0.1, help=feature_explanations.get(feature))
+        st.caption("Adjust gene expression levels (based on dataset ranges)")
+        selected_genes = ["XRCC6", "BRCA1"] if mode == "Basic (Recommended)" else gene_features
+        for feature in selected_genes:
+            label = tooltip_label(feature)
+            range_info = feature_ranges[feature]
+            gene_input[feature] = st.slider(
+                label,
+                min_value=float(range_info["min"]),
+                max_value=float(range_info["max"]),
+                value=float(range_info["median"]),
+                step=0.1,
+                help=f"{feature_explanations.get(feature, 'No description available.')} Range in dataset: {range_info['min']:.2f} to {range_info['max']:.2f}"
+            )
 
     # ===========================
     # Clinical Parameters
@@ -119,7 +134,27 @@ with st.form("patient_form"):
         selected_features = ["Figo.Stage", "Age.Years"] if mode == "Basic (Recommended)" else clinical_features
         for feature in selected_features:
             label = tooltip_label(rename_dict.get(feature, feature))
-            clinical_input[feature] = st.slider(label, 0.0, 100.0, float(default_vals[feature]), 1.0, help=feature_explanations.get(feature))
+            range_info = feature_ranges[feature]
+            if feature == "Figo.Stage":
+                options = ["I", "II", "III", "IV"]
+                default_idx = options.index("II") if range_info["median"] >= 2 else 0
+                selected_stage = st.selectbox(
+                    label,
+                    options=options,
+                    index=default_idx,
+                    help=feature_explanations.get(feature, "Select the cancer stage.")
+                )
+                stage_mapping = {"I": 1, "II": 2, "III": 3, "IV": 4}
+                clinical_input[feature] = stage_mapping[selected_stage]
+            else:
+                clinical_input[feature] = st.slider(
+                    label,
+                    min_value=float(range_info["min"]),
+                    max_value=float(range_info["max"]),
+                    value=float(range_info["median"]),
+                    step=1.0 if feature == "Age.Years" else 0.1,
+                    help=f"{feature_explanations.get(feature, 'No description available.')} Range in dataset: {range_info['min']:.2f} to {range_info['max']:.2f}"
+                )
 
     # ===========================
     # Data Exploration
@@ -133,6 +168,7 @@ with st.form("patient_form"):
         sns.histplot(data_preview[gene], kde=True, ax=ax)
         st.pyplot(fig)
 
+    # Submit button outside tabs
     submitted = st.form_submit_button("🔍 Predict")
 
 # ===========================
@@ -140,20 +176,17 @@ with st.form("patient_form"):
 # ===========================
 if submitted:
     input_data = {**gene_input, **clinical_input}
+    # Fill missing features with dataset medians
+    for feature in features:
+        if feature not in input_data:
+            input_data[feature] = feature_ranges[feature]["median"]
     input_df = pd.DataFrame([input_data]).fillna(0)
 
-    # Convert string booleans or actual booleans to numeric
-    input_df = input_df.replace({'TRUE': 1, 'FALSE': 0, True: 1, False: 0})
-    input_df = input_df.apply(pd.to_numeric, errors='coerce').fillna(0)
-
     try:
-        raw_prediction = model.predict(input_df)[0]
+        prediction = model.predict(input_df)[0]
+        # Ensure prediction is numeric
+        prediction = [int(p) for p in prediction]
 
-        # Convert string predictions to binary
-        if isinstance(raw_prediction[0], str):
-            prediction = [1 if str(p).strip().upper() == 'TRUE' else 0 for p in raw_prediction]
-        else:
-            prediction = [int(p) for p in raw_prediction]
         st.subheader("🔮 Prediction Results")
         results = {}
         for i, outcome in enumerate(target_labels):
@@ -162,42 +195,42 @@ if submitted:
             emoji = "✅" if prediction[i] == 1 else "❌"
             st.markdown(f"- **{outcome}:** {status} {emoji}")
 
-        # Optional: Show predicted probabilities if supported
+        # Prediction probabilities (if supported)
         if hasattr(model, 'predict_proba'):
             st.markdown("### 🔢 Prediction Probabilities")
             try:
                 probas = model.predict_proba(input_df)
                 for i, outcome in enumerate(target_labels):
                     st.markdown(f"- **{outcome}:** {probas[i][0][1]*100:.1f}% chance")
-            except:
-                pass
+            except Exception as e:
+                st.warning(f"Could not compute probabilities: {e}")
 
         # Health Advice
+        st.subheader("📋 Health Advice")
         combo = tuple(results.values())
         advice_dict = {
-            (1, 0, 0): "Focus on treatment response and monitor for progression or recurrence.",
-            (0, 1, 0): "Consider more aggressive or targeted therapy.",
-            (0, 0, 1): "Maintain follow-up screening.",
-            (1, 1, 0): "Close monitoring and aggressive treatment.",
-            (1, 0, 1): "Ensure comprehensive follow-up.",
-            (0, 1, 1): "High risk; multidisciplinary care advised.",
-            (1, 1, 1): "Very high risk; immediate intervention needed.",
-            (0, 0, 0): "No immediate concern. Continue checkups."
+            (1, 0, 0): "Focus on maintaining treatment response; monitor for progression or recurrence.",
+            (0, 1, 0): "Consider targeted therapies to manage progression risk.",
+            (0, 0, 1): "Regular screening is crucial to detect potential recurrence early.",
+            (1, 1, 0): "Close monitoring and possibly aggressive treatment recommended.",
+            (1, 0, 1): "Comprehensive follow-up and treatment adjustments are advised.",
+            (0, 1, 1): "High risk; consult a multidisciplinary team for management.",
+            (1, 1, 1): "Very high risk; immediate comprehensive intervention needed.",
+            (0, 0, 0): "No immediate concerns. Continue regular checkups."
         }
-        st.subheader("📋 Health Advice")
-        advice = advice_dict.get(combo, "Consult a medical professional.")
+        advice = advice_dict.get(combo, "Consult a medical professional for personalized advice.")
         st.info(advice)
 
-        # Feature Importance (if supported)
+        # Feature Importance
         st.subheader("📊 Feature Importance")
         if hasattr(model, 'estimators_'):
             importances = np.mean([tree.feature_importances_ for tree in model.estimators_], axis=0)
             top_idx = np.argsort(importances)[::-1][:10]
             top_features = [features[i] for i in top_idx]
             top_values = importances[top_idx]
-            st.bar_chart(pd.DataFrame({"Importance": top_values}, index=top_features))
+            st.bar_chart(pd.DataFrame({"Importance": top_values}, index=[rename_dict.get(f, f) for f in top_features]))
         else:
-            st.warning("This model does not support feature importances.")
+            st.warning("This model does not support feature importance visualization.")
 
     except Exception as e:
         st.error(f"Prediction failed: {e}")
