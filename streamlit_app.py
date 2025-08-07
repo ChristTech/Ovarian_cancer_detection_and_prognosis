@@ -5,6 +5,7 @@ import joblib
 import matplotlib.pyplot as plt
 import seaborn as sns
 import base64
+from sklearn.preprocessing import StandardScaler
 
 def add_bg_from_local(image_file):
     try:
@@ -27,13 +28,15 @@ def add_bg_from_local(image_file):
     except FileNotFoundError:
         st.warning("Background image not found. Using default background.")
 
-# Call background image
+# Call like:
 add_bg_from_local('image.png')
 
-# Cache model loading
+# Cache model and scaler loading
 @st.cache_resource
-def load_model():
-    return joblib.load("multi_risk_model.sav")
+def load_model_and_scaler():
+    model = joblib.load("multi_risk_model.sav")
+    scaler = joblib.load("scaler.sav")  # Assumes scaler was saved during training
+    return model, scaler
 
 # Cache dataset loading
 @st.cache_data
@@ -46,8 +49,8 @@ def load_survival_both():
 def load_survival_data():
     return pd.read_csv('csv/SurvivalNormal.csv')
 
-# Load model and data
-model = load_model()
+# Load model, scaler, and data
+model, scaler = load_model_and_scaler()
 survival_both = load_survival_both()
 survival_data = load_survival_data()
 
@@ -64,10 +67,10 @@ feature_explanations = {
     "BRCA1": "A gene linked to DNA repair and breast/ovarian cancer risk.",
     "Figo.Stage": "Cancer staging (I-IV) indicating tumor progression.",
     "Age.Years": "Patient's age in years.",
-    # Expand as needed
+    # Add more as needed
 }
 
-# Calculate feature ranges and defaults from dataset
+# Calculate feature ranges from dataset
 feature_ranges = {
     feature: {
         "min": survival_both[feature].min(),
@@ -84,15 +87,12 @@ st.title("🧬 Ovarian Cancer Prognosis Predictor")
 
 st.markdown("""
 This tool predicts **Survival, Cancer Progression, and Recurrence** likelihood based on gene expression and clinical data.  
-- Use the **Gene Expression** and **Clinical Parameters** tabs to input patient data.
-- Use the **Explore Data** tab to visualize gene expression distributions.
-- Check the sidebar to use average dataset values for quick input.
+Use the **Explore Data** tab to visualize gene expression distributions.
 """)
 
 # Sidebar for quick settings
 st.sidebar.header("Input Settings")
 use_default_values = st.sidebar.checkbox("Use average dataset values", value=True)
-show_advanced = st.sidebar.checkbox("Show advanced gene inputs", value=False)
 
 with st.form("patient_form"):
     tabs = st.tabs(["🧪 Gene Expression", "🩺 Clinical Parameters", "📊 Explore Data"])
@@ -100,9 +100,8 @@ with st.form("patient_form"):
     # Gene Expression inputs
     gene_input = {}
     with tabs[0]:
-        st.caption("Adjust gene expression levels (based on dataset ranges)")
-        selected_genes = gene_features[:5] if not show_advanced else gene_features  # Limit to top 5 genes unless advanced mode
-        for feature in selected_genes:
+        st.caption("Adjust gene expression levels (normalized values based on dataset)")
+        for feature in gene_features:
             label = tooltip_label(feature)
             range_info = feature_ranges[feature]
             default_value = range_info["mean"] if use_default_values else (range_info["min"] + range_info["max"]) / 2
@@ -114,8 +113,6 @@ with st.form("patient_form"):
                 value=float(default_value),
                 help=f"{feature_explanations.get(feature, 'No description available.')} Range in dataset: {range_info['min']:.2f} to {range_info['max']:.2f}"
             )
-        if not show_advanced:
-            st.info("Enable 'Show advanced gene inputs' in the sidebar to adjust all gene expression levels.")
 
     # Clinical inputs
     clinical_input = {}
@@ -123,27 +120,24 @@ with st.form("patient_form"):
         st.caption("Provide clinical attributes")
         for feature in clinical_features:
             label = tooltip_label(feature)
-            range_info = feature_ranges[feature]
             if feature == "Figo.Stage":
-                # Categorical input for Figo.Stage
+                # Use selectbox for categorical feature like Juno Stage
                 options = ["I", "II", "III", "IV"]
-                default_idx = options.index("II") if use_default_values else 0
-                selected_stage = st.selectbox(
+                default_idx = options.index("I") if use_default_values else 0
+                clinical_input[feature] = st.selectbox(
                     label,
                     options=options,
                     index=default_idx,
                     help=feature_explanations.get(feature, "Select the cancer stage.")
                 )
-                # Map stages to numerical values (assuming model expects numerical)
-                stage_mapping = {"I": 1, "II": 2, "III": 3, "IV": 4}
-                clinical_input[feature] = stage_mapping[selected_stage]
             else:
+                range_info = feature_ranges[feature]
                 default_value = range_info["mean"] if use_default_values else (range_info["min"] + range_info["max"]) / 2
                 clinical_input[feature] = st.slider(
                     label,
                     min_value=float(range_info["min"]),
                     max_value=float(range_info["max"]),
-                    step=1.0 if feature == "Age.Years" else 0.1,
+                    step=1.0,
                     value=float(default_value),
                     help=f"{feature_explanations.get(feature, 'No description available.')} Range in dataset: {range_info['min']:.2f} to {range_info['max']:.2f}"
                 )
@@ -164,14 +158,11 @@ with st.form("patient_form"):
 
 if submitted:
     input_data = {**gene_input, **clinical_input}
-    # Fill missing gene features (if not all provided) with dataset means
-    for feature in features:
-        if feature not in input_data:
-            input_data[feature] = feature_ranges[feature]["mean"]
     input_df = pd.DataFrame([input_data]).fillna(0)
 
-    # No scaling since model was trained on unscaled data
-    prediction = model.predict(input_df)[0]
+    # Scale input data
+    input_scaled = scaler.transform(input_df)
+    prediction = model.predict(input_scaled)[0]
 
     st.subheader("🔮 Prediction Results")
     results = {}

@@ -41,6 +41,12 @@ y_pred = model.predict(X_test)
 print("Classification Report:")
 print(classification_report(y_test, y_pred, target_names=target_cols))
 
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+X = scaler.fit_transform(X.fillna(X.mean()))
+joblib.dump(scaler, "scaler.sav")
+
+
 # Save model
 joblib.dump(model, "multi_risk_model.sav")
 print("✅ Model saved as 'multi_risk_model.sav'")
