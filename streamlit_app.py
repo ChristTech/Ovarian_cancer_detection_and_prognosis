@@ -36,8 +36,10 @@ add_bg_from_local('image.png')
 # Cached Resources
 # ===========================
 @st.cache_resource
-def load_model():
-    return joblib.load("multi_risk_model.sav")
+def load_model_and_scaler():
+    model = joblib.load("multi_risk_model.sav")
+    scaler = joblib.load("scaler.sav")
+    return model, scaler
 
 @st.cache_data
 def load_data():
@@ -52,7 +54,7 @@ def load_data_preview():
 # ===========================
 # Load
 # ===========================
-model = load_model()
+model, scaler = load_model_and_scaler()
 data = load_data()
 data_preview = load_data_preview()
 features = data.drop(columns=["SURVIVAL", "PROGRESSION", "RECURRENCE"]).columns.tolist()
@@ -72,11 +74,26 @@ feature_ranges = {
     } for feature in features
 }
 
+# Adjust ranges for gene and clinical features (except Age.Years)
+for feature in features:
+    if feature != "Age.Years":
+        range_span = feature_ranges[feature]["max"] - feature_ranges[feature]["min"]
+        buffer = max(range_span * 0.1, 1.0)  # Add ±10% or minimum 1.0
+        feature_ranges[feature]["min"] = feature_ranges[feature]["min"] - buffer
+        feature_ranges[feature]["max"] = feature_ranges[feature]["max"] + buffer
+
+# Set realistic range for Age.Years
+feature_ranges["Age.Years"] = {
+    "min": 18.0,  # Minimum age for adult patients
+    "max": 100.0,  # Maximum reasonable age
+    "median": max(18.0, min(100.0, feature_ranges.get("Age.Years", {}).get("median", 50.0)))
+}
+
 feature_explanations = {
     "XRCC6": "Involved in DNA repair. Normal range: 4-6",
     "BRCA1": "Gene linked to breast/ovarian cancer. Normal range: 5-7",
     "Figo.Stage": "FIGO staging system: 1 (Early) to 4 (Late)",
-    "Age.Years": "Patient's age in years",
+    "Age.Years": "Patient's age in years (18-100)",
     # Add more features as needed
 }
 
@@ -176,14 +193,16 @@ with st.form("patient_form"):
 # ===========================
 if submitted:
     input_data = {**gene_input, **clinical_input}
-    # Fill missing features with dataset medians
+    # Create a DataFrame with all expected features in the correct order
+    input_df = pd.DataFrame(columns=features)
     for feature in features:
-        if feature not in input_data:
-            input_data[feature] = feature_ranges[feature]["median"]
-    input_df = pd.DataFrame([input_data]).fillna(0)
+        input_df.at[0, feature] = input_data.get(feature, feature_ranges[feature]["median"])
+    input_df = input_df.fillna(0).astype(float)
 
     try:
-        prediction = model.predict(input_df)[0]
+        # Scale the input data using the loaded scaler
+        input_scaled = scaler.transform(input_df)
+        prediction = model.predict(input_scaled)[0]
         # Ensure prediction is numeric
         prediction = [int(p) for p in prediction]
 
@@ -199,7 +218,7 @@ if submitted:
         if hasattr(model, 'predict_proba'):
             st.markdown("### 🔢 Prediction Probabilities")
             try:
-                probas = model.predict_proba(input_df)
+                probas = model.predict_proba(input_scaled)
                 for i, outcome in enumerate(target_labels):
                     st.markdown(f"- **{outcome}:** {probas[i][0][1]*100:.1f}% chance")
             except Exception as e:
