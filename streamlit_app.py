@@ -35,7 +35,7 @@ add_bg_from_local('image.png')
 @st.cache_resource
 def load_model_and_scaler():
     model = joblib.load("multi_risk_model.sav")
-    scaler = joblib.load("scaler.sav")
+    scaler = joblib.load("scaler.sav")  # Assumes scaler was saved during training
     return model, scaler
 
 # Cache dataset loading
